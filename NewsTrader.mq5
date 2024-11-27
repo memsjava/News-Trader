@@ -17,6 +17,7 @@
 #include <Trade/Trade.mqh>
 #include <Trade/OrderInfo.mqh>
 #include <Trade/PositionInfo.mqh>
+#include <Wininet.mqh>  // For HTTP requests
 
 enum dir_enum
 {
@@ -73,12 +74,22 @@ input int Slippage = 3;
 input int Magic = 794823491;
 input string Commentary = "NewsTrader"; // Comment - trade description (e.g. "US CPI", "EU GDP", etc.)
 input bool IgnoreECNMode = true; // IgnoreECNMode: Always attach SL/TP immediately
+// New input parameters for news API
+input group "News API Settings"
+input string ApiBaseUrl = "https://api.example.com/economic-calendar/v4";  // Base URL for economic calendar API
+input string ApiKey = "";  // Your API key
+input string Currency = "USD";  // Currency to filter news events
+input int LookAheadDays = 1;  // Days to look ahead for news
+input bool UseHighImpactOnly = true;  // Only use high-impact events
+input bool EnableApiLogging = true;  // Enable API debugging logs
 
 // Global variables:
 bool HaveLongPosition, HaveShortPosition;
 bool HaveBuyPending = false, HaveSellPending = false;
 bool ECN_Mode, Hedging_Mode;
 bool BuyOrderAccepted = false, SellOrderAccepted = false;
+datetime LatestNewsTime = 0;
+string LatestNewsTitle = "";
 
 int news_time;
 bool CanTrade = false;
@@ -97,6 +108,10 @@ bool ReferenceSymbolMode;
 // Main trading objects:
 CTrade *Trade;
 CPositionInfo PositionInfo;
+
+// HTTP request and JSON parsing function prototypes
+bool FetchEconomicNews(datetime &newsTime, string &newsTitle);
+bool ParseNewsApiResponse(string response, datetime &newsTime, string &newsTitle);
 
 void OnInit()
 {
@@ -134,6 +149,23 @@ void OnInit()
     Trade.SetExpertMagicNumber(Magic);
 
     if (BEExtraProfit > BEOnProfit) Print("Extra profit for breakeven shouldn't be greater than the profit to trigger breakeven parameter. Please check your input parameters.");
+
+    // Fetch news dynamically on initialization
+    if (FetchEconomicNews(LatestNewsTime, LatestNewsTitle))
+    {
+        // Override the static NewsTime with dynamically fetched time
+        news_time = (int)LatestNewsTime;
+        
+        // Optional: Print news details for logging
+        if (EnableApiLogging)
+        {
+            Print("Upcoming News: ", LatestNewsTitle, " at ", TimeToString(LatestNewsTime));
+        }
+    }
+    else
+    {
+        Print("Failed to fetch news. Using manually set NewsTime.");
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -206,12 +238,110 @@ string TimeDistance(int t)
     StringTrimLeft(s);
     return s;
 }
+//+------------------------------------------------------------------+
+//| Fetch economic news from API                                     |
+//+------------------------------------------------------------------+
+bool FetchEconomicNews(datetime &newsTime, string &newsTitle)
+{
+    // Prepare API request
+    string headers = "Content-Type: application/json\r\n";
+    headers += "Authorization: Bearer " + ApiKey;
+    
+    string params = "?currency=" + Currency;
+    params += "&impact=" + (UseHighImpactOnly ? "high" : "all");
+    params += "&lookAhead=" + IntegerToString(LookAheadDays);
+
+    char data[];
+    char result[];
+    int res;
+    
+    ResetLastError();
+    
+    // Perform HTTP GET request
+    int webRequest = WebRequest("GET", ApiBaseUrl + params, headers, 5000, data, result);
+    
+    if (webRequest == -1)
+    {
+        int errorCode = GetLastError();
+        Print("WebRequest error. Error code: ", errorCode);
+        return false;
+    }
+    
+    string response = CharArrayToString(result);
+    
+    // Parse the API response
+    if (ParseNewsApiResponse(response, newsTime, newsTitle))
+    {
+        return true;
+    }
+    
+    return false;
+}
+
+
+//+------------------------------------------------------------------+
+//| Parse JSON response from news API                                |
+//+------------------------------------------------------------------+
+bool ParseNewsApiResponse(string response, datetime &newsTime, string &newsTitle)
+{
+    // IMPORTANT: This is a placeholder parsing function
+    // You MUST replace this with actual parsing logic based on your specific API's JSON structure
+    
+    // Example JSON parsing (you'll need to adjust based on actual API response)
+    int jsonTime = -1;
+    
+    // Use MQL's JSON parsing or a library like nlohmann/json
+    // This is a simplified mock implementation
+    if (StringFind(response, "\"timestamp\":") != -1)
+    {
+        // Extract timestamp - replace with proper JSON parsing
+        jsonTime = (int)StringToInteger(response);
+        newsTime = (datetime)jsonTime;
+        newsTitle = "Economic Event";
+        
+        return true;
+    }
+    
+    Print("Failed to parse news API response");
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Periodic news update check                                       |
+//+------------------------------------------------------------------+
+void CheckAndUpdateNews()
+{
+    // Check if it's time to refresh news (e.g., daily)
+    static datetime lastUpdateTime = 0;
+    datetime currentTime = TimeCurrent();
+    
+    if (currentTime - lastUpdateTime > 86400)  // 24 hours
+    {
+        datetime newNewsTime;
+        string newNewsTitle;
+        
+        if (FetchEconomicNews(newNewsTime, newNewsTitle))
+        {
+            news_time = (int)newNewsTime;
+            LatestNewsTime = newNewsTime;
+            LatestNewsTitle = newNewsTitle;
+            
+            lastUpdateTime = currentTime;
+            
+            if (EnableApiLogging)
+            {
+                Print("News updated: ", newNewsTitle, " at ", TimeToString(newNewsTime));
+            }
+        }
+    }
+}
 
 //+------------------------------------------------------------------+
 //| Check every tick.                                                |
 //+------------------------------------------------------------------+
 void OnTick()
 {
+    CheckAndUpdateNews();
     AccountCurrency = AccountInfoString(ACCOUNT_CURRENCY);
     // A rough patch for cases when account currency is set as RUR instead of RUB.
     if (AccountCurrency == "RUR") AccountCurrency = "RUB";
