@@ -14,9 +14,9 @@
 #property description "ATR-based stop-loss option is also available."
 #property description "Closes trade after given time period passes."
 // tsy nomen takaka reto
-#include <Trade/Trade.mqh>
-#include <Trade/OrderInfo.mqh>
-#include <Trade/PositionInfo.mqh>
+// #include <Trade/Trade.mqh>
+// #include <Trade/OrderInfo.mqh>
+// #include <Trade/PositionInfo.mqh>
 #include <Wininet.mqh> // For HTTP requests
 
 enum dir_enum
