@@ -24,12 +24,16 @@
 ////////////////////////////////////////////////////////////////////////////////
 //                              Input parameters                              //
 ////////////////////////////////////////////////////////////////////////////////
-input ENUM_TIMEFRAMES dangerPeriod = PERIOD_H1; // Danger period
-input ENUM_TIMEFRAMES newsPeriod = PERIOD_W1;   // News period
+
 input ENUM_TIMEFRAMES WorkPeriod1 = PERIOD_M5;  // Work period first
 input ENUM_TIMEFRAMES WorkPeriod2 = PERIOD_M15; // Work period second
+input ENUM_TIMEFRAMES WorkPeriod3 = PERIOD_M30; // Work period third
+input ENUM_TIMEFRAMES WorkPeriod4 = PERIOD_H1;  // Work period fourth
+input ENUM_TIMEFRAMES dangerPeriod = PERIOD_H4; // Danger period
+input ENUM_TIMEFRAMES newsPeriod = PERIOD_W1;   // News period
 input double lossThresholdVal = 25;             // Loss threshold
 input double lossThresholdValNews = 5;          // News Loss threshold
+input bool enableLoss = false;                  // Enable smart stop
 
 ////////////////////////////////////////////////////////////////////////////////
 //                Global variables, used in working the script                //
@@ -44,27 +48,12 @@ struct NewsInfo
 ////////////////////////////////////////////////////////////////////////////////
 //                       Script program start function                        //
 ////////////////////////////////////////////////////////////////////////////////
-void SynchronizeTimeframes(bool isFirst, bool isDanger, bool isNews)
+void SynchronizeTimeframes(ENUM_TIMEFRAMES timeframe)
 {
   //----------------------------------------------------------------------------//
   // Work variables
   ENUM_TIMEFRAMES TimeFrames; // TimeFrames
-  if (isNews)
-  {
-    TimeFrames = newsPeriod;
-  }
-  else if (isDanger)
-  {
-    TimeFrames = dangerPeriod;
-  }
-  else if (isFirst)
-  {
-    TimeFrames = WorkPeriod1;
-  }
-  else
-  {
-    TimeFrames = WorkPeriod2;
-  }
+  TimeFrames = timeframe;
 
   string ChartSymbolName; // The symbol name for the specified chart
 
@@ -116,7 +105,7 @@ void SynchronizeTimeframes(bool isFirst, bool isDanger, bool isNews)
   }
 }
 
-void checkStop(NewsInfo &newsInfo)
+void checkAndClosePositionsIfNeeded(NewsInfo &newsInfo)
 {
   double totalLoss = 0.0;                            // Variable to accumulate total loss
   double equity = AccountInfoDouble(ACCOUNT_EQUITY); // Get current equity
@@ -299,23 +288,29 @@ string PeriodToStr(ENUM_TIMEFRAMES Value)
 void OnTick()
 {
   NewsInfo newsInfo = isNewsInterval();
-
   if (newsInfo.newsFound)
   {
-    SynchronizeTimeframes(false, false, true);
+    SynchronizeTimeframes(newsPeriod);
+    // checkAndClosePositionsIfNeeded(newsInfo);
   }
-  else if (PositionsTotal() > 1)
+  else if (PositionsTotal() < 2)
   {
-    SynchronizeTimeframes(false, true, false);
+    SynchronizeTimeframes(WorkPeriod1);
   }
-  else if (PositionsTotal() <= 1)
+  else if (PositionsTotal() < 3)
   {
-    SynchronizeTimeframes(true, false, false);
+    SynchronizeTimeframes(WorkPeriod2);
   }
-  else
+  else if (PositionsTotal() < 4)
   {
-    SynchronizeTimeframes(false, false, false);
+    SynchronizeTimeframes(WorkPeriod3);
   }
-
-  checkStop(newsInfo);
+  else if (PositionsTotal() < 5)
+  {
+    SynchronizeTimeframes(WorkPeriod4);
+  }
+  else if (PositionsTotal() < 6)
+  {
+    SynchronizeTimeframes(dangerPeriod);
+  }
 }
